@@ -9,13 +9,42 @@ import torch
 from diffusers import StableCascadeDecoderPipeline, StableCascadePriorPipeline
 import os
 import uuid  # Import the uuid library
+import glob
+import json
+
+
+def try_to_fix_config_file(config_file: str):
+    f = glob.glob(os.path.expanduser(config_file))
+    if len(f) == 0:
+        return
+    config_file = os.path.expanduser(f[0])
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+    if 'c_in' in config:
+        config['in_channels'] = config['c_in']
+        del config['c_in']
+        with open(config_file, 'w') as f:
+            json.dump(config, f)
+            f.flush()
+
 
 # Set device and data type
-device = "cuda"
-dtype = torch.bfloat16
+device = torch.device("cpu")
+if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    device = torch.device("mps")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+print("RUNNING ON:", device)
+
+dtype = torch.bfloat16 if device.type == "cpu" else torch.float
 
 # Load models
+StableCascadePriorPipeline.download("stabilityai/stable-cascade-prior")
+try_to_fix_config_file('~/.cache/huggingface/hub/models--stabilityai--stable-cascade-prior/snapshots/*/prior/config.json')
 prior = StableCascadePriorPipeline.from_pretrained("stabilityai/stable-cascade-prior", torch_dtype=dtype).to(device)
+
+StableCascadeDecoderPipeline.download("stabilityai/stable-cascade-prior")
+try_to_fix_config_file('~/.cache/huggingface/hub/models--stabilityai--stable-cascade/snapshots/*/decoder/config.json')
 decoder = StableCascadeDecoderPipeline.from_pretrained("stabilityai/stable-cascade", torch_dtype=dtype).to(device)
 
 # Use a relative path for the output directory
