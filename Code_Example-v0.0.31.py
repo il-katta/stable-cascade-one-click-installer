@@ -13,6 +13,9 @@ import glob
 import json
 
 
+# Enable CPU offload for low VRAM
+LOW_VRAM = True
+
 def try_to_fix_config_file(config_file: str):
     f = glob.glob(os.path.expanduser(config_file))
     if len(f) == 0:
@@ -33,20 +36,32 @@ device = torch.device("cpu")
 if torch.backends.mps.is_available() and torch.backends.mps.is_built():
     device = torch.device("mps")
 if torch.cuda.is_available():
-    device = torch.device("cuda")
+    device = torch.device("cuda:0")
 print("RUNNING ON:", device)
 
-dtype = torch.bfloat16 if device.type == "cpu" else torch.float
+decoder_dtype = torch.bfloat16 if device.type == "cpu" else torch.float
+prior_dtype = torch.bfloat16 if device.type == "cpu" else torch.float
+
+
+if LOW_VRAM:
+    import accelerate  # it's ok to import and not use it
+    dtype = torch.bfloat16
+
 
 # Load models
 StableCascadePriorPipeline.download("stabilityai/stable-cascade-prior")
 try_to_fix_config_file('~/.cache/huggingface/hub/models--stabilityai--stable-cascade-prior/snapshots/*/prior/config.json')
-prior = StableCascadePriorPipeline.from_pretrained("stabilityai/stable-cascade-prior", torch_dtype=dtype).to(device)
 
+prior = StableCascadePriorPipeline.from_pretrained("stabilityai/stable-cascade-prior", torch_dtype=prior_dtype).to(device)
+if LOW_VRAM:
+    prior.enable_model_cpu_offload()
 StableCascadeDecoderPipeline.download("stabilityai/stable-cascade-prior")
 try_to_fix_config_file('~/.cache/huggingface/hub/models--stabilityai--stable-cascade/snapshots/*/decoder/config.json')
-decoder = StableCascadeDecoderPipeline.from_pretrained("stabilityai/stable-cascade", torch_dtype=dtype).to(device)
 
+decoder = StableCascadeDecoderPipeline.from_pretrained("stabilityai/stable-cascade", torch_dtype=decoder_dtype).to(device)
+if LOW_VRAM:
+    decoder.enable_model_cpu_offload()
+    
 # Use a relative path for the output directory
 output_directory = "./Output"
 # Ensure the output directory exists
